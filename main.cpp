@@ -1,26 +1,25 @@
 #include <unistd.h>
-#include <errno.h>      // Error number definitions
 
 #include <stdio.h>
 #include <stdint.h>
 #include <string>
+#include <sstream>
+#include <iostream>
+#include <fcntl.h>
 
 #ifdef WIRING_PI
 #include <wiringSerial.h>
 #endif
 
-#include <sstream>
-#include <iostream>
-#include <fcntl.h>
 
-#define NO_GESTURE						0x00
-#define GESTURE_GARBAGE					0x01
-#define GESTURE_WEST_EAST				0x02
-#define GESTURE_EAST_WEST				0x03
-#define GESTURE_SOUTH_NORTH				0x04
-#define GESTURE_NORTH_SOUTH				0x05
-#define GESTURE_CLOCK_WISE				0x06
-#define GESTURE_COUNTER_CLOCK_WISE		0x07
+#define NO_GESTURE                 0x00
+#define GESTURE_GARBAGE            0x01
+#define GESTURE_WEST_EAST          0x02
+#define GESTURE_EAST_WEST          0x03
+#define GESTURE_SOUTH_NORTH        0x04
+#define GESTURE_NORTH_SOUTH        0x05
+#define GESTURE_CLOCK_WISE         0x06
+#define GESTURE_COUNTER_CLOCK_WISE 0x07
 
 #pragma pack(1)
 struct MGCData
@@ -64,14 +63,16 @@ struct MGCData
     uint16_t	AirWheelInfo;
 
     uint8_t  xyzArray[6];
-    char dump[222];
+    char padding[32]; // if we do some crap, do it here...
 };
 
 class MGC
 {
 public:
-    MGC():
-            m_curPos (0)
+    MGC()
+      : m_curPos (0)
+      , m_oldstring("")
+      , m_showxyz(false)
     {
 
     }
@@ -93,10 +94,13 @@ public:
                 return;
             }
         }
+        if (m_curPos == 4)
+        {
+        }
 
         if (m_curPos < 28) {
             uint8_t * p = (uint8_t *) &m_payload;
-            p[m_curPos] = value;
+            p[m_curPos] = static_cast<uint8_t>(value);
             ++m_curPos;
         }
         if (m_curPos == 28) {
@@ -150,14 +154,24 @@ public:
                 ss << " DTapE";
             if (m_payload.touchInfo.doubleTapCentre)
                 ss << " DTapC";
+            if (m_payload.AirWheelInfo)
+            {
+
+            }
+            if (m_showxyz)
+            {
+                ss << " xyz=[" << m_payload.xyzArray[1] * 256 + m_payload.xyzArray[0];
+                ss << "," << m_payload.xyzArray[3] * 256 + m_payload.xyzArray[2];
+                ss << "," << m_payload.xyzArray[5] * 256 + m_payload.xyzArray[4] << "]";
+            }
             if (m_oldstring != ss.str())
             {
                 m_oldstring = ss.str();
 
-            	//ss << " xyz=[" << data.xyzArray[1]*256+data.xyzArray[0];
-            	//ss << "," <<  data.xyzArray[3]*256+data.xyzArray[2];
-            	//ss << "," << data.xyzArray[5]*256+data.xyzArray[4] << "]";
-                std::cout << ss.str() << std::endl;
+                if (ss.str().length ())
+                {
+                    std::cout << ss.str () << std::endl;
+                }
             }
             m_curPos = -1;
         }
@@ -167,8 +181,9 @@ protected:
     MGCData m_payload;
 
 private:
-    std::string m_oldstring;
     int m_curPos;
+    std::string m_oldstring;
+    bool m_showxyz;
 };
 
 int main(int argc, char *argv[])
