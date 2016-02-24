@@ -197,7 +197,7 @@ int main(int argc, char *argv[])
     bool dumpxyz=false;
     if (argc == 3)
     {
-        if (argv[2] == "--xyz")
+        if (std::string(argv[2]) == std::string("--xyz"))
         {
             dumpxyz = true;
         }
@@ -208,7 +208,7 @@ int main(int argc, char *argv[])
         }
     }
     
-    MGC mgc;
+    MGC mgc(dumpxyz);
 
 #ifdef WIRING_PI
     int handler = serialOpen (argv[1], 115200);
