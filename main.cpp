@@ -7,6 +7,7 @@
 #include <iostream>
 #include <fcntl.h>
 
+#define WIRING_PI
 #ifdef WIRING_PI
 #include <wiringSerial.h>
 #endif
@@ -69,10 +70,10 @@ struct MGCData
 class MGC
 {
 public:
-    MGC()
+    MGC(bool dumpxyz=false)
       : m_curPos (0)
       , m_oldstring("")
-      , m_showxyz(false)
+      , m_showxyz(dumpxyz)
     {
 
     }
@@ -188,11 +189,25 @@ private:
 
 int main(int argc, char *argv[])
 {
-
-    if (argc != 2)
+    if (argc < 2)
     {
-        printf("Missing device\n");
+        printf("Usage %s device [--xyz]\n", argv[0]);
+        exit(2);
     }
+    bool dumpxyz=false;
+    if (argc == 3)
+    {
+        if (argv[2] == "--xyz")
+        {
+            dumpxyz = true;
+        }
+        else
+        {
+            printf("unknown option %s", argv[2]);
+            exit(2);
+        }
+    }
+    
     MGC mgc;
 
 #ifdef WIRING_PI
