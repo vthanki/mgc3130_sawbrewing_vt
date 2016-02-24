@@ -1,11 +1,17 @@
 #include <unistd.h>
 #include <errno.h>      // Error number definitions
+
+#include <stdio.h>
 #include <stdint.h>
 #include <string>
 
+#ifdef WIRING_PI
 #include <wiringSerial.h>
+#endif
+
 #include <sstream>
 #include <iostream>
+#include <fcntl.h>
 
 #define NO_GESTURE						0x00
 #define GESTURE_GARBAGE					0x01
@@ -29,40 +35,31 @@ struct MGCData
 
     uint16_t dspInfo;
     struct {
-        uint8_t GestureCode			:8;		//	0 -> No Gesture
-        //	1 -> Garbage Model
-        //  2 -> Flick West To East
-        //	3 -> Flick East to West
-        //	4 -> Flick South to North
-        //	5 -> Flick North to South
-        //	6 -> Circle Clockwise
-        //	7 -> Circle Counter-Clockwise
-        uint8_t Reserved			:4;
-        uint8_t GestureType			:4;		//	0 -> Garbage Model
-        //  1 -> Flick Gesture
-        //	2 -> Circular Gesture
-        uint8_t EdgeFlick			:1;		//	If "1" Edge Flick
-        uint16_t Reserved2			:14;
-        uint8_t GestureInProgress	:1;		//	If "1" Gesture recognition in progress
+        uint8_t gestureCode:8;		//	0 -> No Gesture
+        uint8_t reserved:4;
+        uint8_t gestureType:4;
+        uint8_t edgeFlick:1;
+        uint16_t reserved2:14;
+        uint8_t gestureInProgress:1; //	If "1" Gesture recognition in progress
     } gestureInfo;
     struct {
-        uint8_t TouchSouth			:1;
-        uint8_t TouchWest			:1;	//	Bit 01
-        uint8_t TouchNorth			:1;	//	Bit 02
-        uint8_t TouchEast			:1;	//	Bit 03
-        uint8_t TouchCentre			:1;	//	Bit 04
-        uint8_t TapSouth			:1;	//	Bit 05
-        uint8_t TapWest				:1;	//	Bit 06
-        uint8_t TapNorth			:1;	//	Bit 07
-        uint8_t TapEast				:1;	//	Bit 08
-        uint8_t TapCentre			:1;	//	Bit 09
-        uint8_t DoubleTapSouth		:1;	//	Bit 10
-        uint8_t DoubleTapWest		:1;	//	Bit 11
-        uint8_t DoubleTapNorth		:1;	//	Bit 12
-        uint8_t DoubleTapEast		:1;	//	Bit 13
-        uint8_t DoubleTapCentre		:1; //	Bit 14
-        uint8_t nada		        :1; //	Bit 15
-        uint32_t FreeBit				:16;
+        uint8_t touchSouth:1;
+        uint8_t touchWest:1;	//:Bit 01
+        uint8_t touchNorth:1;	//:Bit 02
+        uint8_t touchEast:1;	//:Bit 03
+        uint8_t touchCentre:1;	//:Bit 04
+        uint8_t tapSouth:1;	//:Bit 05
+        uint8_t tapWest:1;	//:Bit 06
+        uint8_t tapNorth:1;	//:Bit 07
+        uint8_t tapEast	:1;	//:Bit 08
+        uint8_t tapCentre:1;	//:Bit 09
+        uint8_t doubleTapSouth:1;	//:Bit 10
+        uint8_t doubleTapWest:1;	//:Bit 11
+        uint8_t doubleTapNorth:1;	//:Bit 12
+        uint8_t doubleTapEast:1;	//:Bit 13
+        uint8_t doubleTapCentre:1; //:Bit 14
+        uint8_t nada:1; //:Bit 15
+        uint32_t free:16;
     } touchInfo;
     uint16_t	AirWheelInfo;
 
@@ -73,105 +70,105 @@ struct MGCData
 class MGC
 {
 public:
-    MGC() :
-            curPos(0)
+    MGC():
+            m_curPos (0)
     {
 
     }
 
     void addVal(int value)
     {
-        if (curPos == -1) {
+        if (m_curPos == -1) {
             if (value == 0xfe) {
-                curPos = 0;
+                m_curPos = 0;
             }
             return;
         }
-        else if (curPos == 0) {
+        else if (m_curPos == 0) {
             if (value == 0xff) {
-                curPos = 1;
+                m_curPos = 1;
             }
             else {
-                curPos = -1;
+                m_curPos = -1;
                 return;
             }
         }
 
-        if (curPos < 28) {
-            uint8_t * p = (uint8_t *) &data;
-            p[curPos] = value;
-            ++curPos;
+        if (m_curPos < 28) {
+            uint8_t * p = (uint8_t *) &m_payload;
+            p[m_curPos] = value;
+            ++m_curPos;
         }
-        if (curPos == 28) {
+        if (m_curPos == 28) {
             std::stringstream ss;
-            if (data.gestureInfo.GestureCode) {
-                ss << " GestCode=" << static_cast<int>(data.gestureInfo.GestureCode);
-                switch(data.gestureInfo.GestureCode)
+            if (m_payload.gestureInfo.gestureCode) {
+                ss << " GestCode=" << static_cast<int>(m_payload.gestureInfo.gestureCode);
+                switch(m_payload.gestureInfo.gestureCode)
                 {
-                    case GESTURE_GARBAGE: ss << "garbage"; break;
-                    case GESTURE_WEST_EAST: ss << "west-east"; break;                               
-                    case GESTURE_EAST_WEST: ss << "east-west"; break;                              
-                    case GESTURE_SOUTH_NORTH: ss << "south-north"; break;                        
-                    case GESTURE_NORTH_SOUTH: ss << "north-south"; break;                         
-                    case GESTURE_CLOCK_WISE: ss << "clock wise"; break;                           
-                    case GESTURE_COUNTER_CLOCK_WISE: ss << "Counter clock wise"; break;              
+                    case GESTURE_GARBAGE: ss << " garbage"; break;
+                    case GESTURE_WEST_EAST: ss << " west-east"; break;
+                    case GESTURE_EAST_WEST: ss << " east-west"; break;
+                    case GESTURE_SOUTH_NORTH: ss << " south-north"; break;
+                    case GESTURE_NORTH_SOUTH: ss << " north-south"; break;
+                    case GESTURE_CLOCK_WISE: ss << " clock wise"; break;
+                    case GESTURE_COUNTER_CLOCK_WISE: ss << " counter clock wise"; break;
                 }
             }
-            if (data.gestureInfo.GestureType==1)
+            if (m_payload.gestureInfo.gestureType == 1)
                 ss << " Flick";
-            if (data.gestureInfo.GestureType==2)
+            if (m_payload.gestureInfo.gestureType == 2)
                 ss << " Circular";
-            if (data.gestureInfo.EdgeFlick==2)
+            if (m_payload.gestureInfo.edgeFlick == 2)
                 ss << " EdgeFlick";
-            if (data.touchInfo.TouchSouth)
+            if (m_payload.touchInfo.touchSouth)
                 ss << " TchS";
-            if (data.touchInfo.TouchWest)
+            if (m_payload.touchInfo.touchWest)
                 ss << " TchW";
-            if (data.touchInfo.TouchNorth)
+            if (m_payload.touchInfo.touchNorth)
                 ss << " TchN";
-            if (data.touchInfo.TouchEast)
+            if (m_payload.touchInfo.touchEast)
                 ss << " TchE";
-            if (data.touchInfo.TouchCentre)
+            if (m_payload.touchInfo.touchCentre)
                 ss << " TchC";
-            if (data.touchInfo.TapSouth)
+            if (m_payload.touchInfo.tapSouth)
                 ss << " TapS";
-            if (data.touchInfo.TapNorth)
+            if (m_payload.touchInfo.tapNorth)
                 ss << " TapN";
-            if (data.touchInfo.TapWest)
+            if (m_payload.touchInfo.tapWest)
                 ss << " TapW";
-            if (data.touchInfo.TapEast)
+            if (m_payload.touchInfo.tapEast)
                 ss << " TapE";
-            if (data.touchInfo.TapCentre)
+            if (m_payload.touchInfo.tapCentre)
                 ss << " TapC";
-            if (data.touchInfo.DoubleTapSouth)
+            if (m_payload.touchInfo.doubleTapSouth)
                 ss << " DTapS";
-            if (data.touchInfo.DoubleTapNorth)
+            if (m_payload.touchInfo.doubleTapNorth)
                 ss << " DTapN";
-            if (data.touchInfo.DoubleTapWest)
+            if (m_payload.touchInfo.doubleTapWest)
                 ss << " DTapW";
-            if (data.touchInfo.DoubleTapEast)
+            if (m_payload.touchInfo.doubleTapEast)
                 ss << " DTapE";
-            if (data.touchInfo.DoubleTapCentre)
+            if (m_payload.touchInfo.doubleTapCentre)
                 ss << " DTapC";
-            if (oldstring != ss.str())
+            if (m_oldstring != ss.str())
             {
-                oldstring = ss.str();
+                m_oldstring = ss.str();
 
             	//ss << " xyz=[" << data.xyzArray[1]*256+data.xyzArray[0];
             	//ss << "," <<  data.xyzArray[3]*256+data.xyzArray[2];
             	//ss << "," << data.xyzArray[5]*256+data.xyzArray[4] << "]";
                 std::cout << ss.str() << std::endl;
             }
-            curPos = -1;
+            m_curPos = -1;
         }
     }
 
 protected:
-    MGCData data;
+    MGCData m_payload;
 
 private:
-    std::string oldstring;
-    int curPos;
+    std::string m_oldstring;
+    int m_curPos;
 };
 
 int main(int argc, char *argv[])
@@ -182,6 +179,8 @@ int main(int argc, char *argv[])
         printf("Missing device\n");
     }
     MGC mgc;
+
+#ifdef WIRING_PI
     int handler = serialOpen (argv[1], 115200);
     while(1)
     {
@@ -191,5 +190,19 @@ int main(int argc, char *argv[])
             mgc.addVal(val);
         }
     }
+#else
+    int handler = open (argv[1], O_RDONLY | O_NOCTTY);
+    while(1)
+    {
+        char buffer[32];
+        int n = read(handler, buffer, sizeof(buffer));
+        if (n>0)
+        {
+            for (int i=0; i < n; ++i)
+                mgc.addVal(buffer[i]);
+        }
+    }
+
+#endif
 
 }
