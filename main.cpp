@@ -70,10 +70,12 @@ struct MGCData
 class MGC
 {
 public:
-    MGC(bool dumpxyz=false)
+    MGC(bool tagxyz = false, bool dumpxyz = false)
       : m_curPos (0)
       , m_oldstring("")
+      , m_tagxyz(tagxyz)
       , m_showxyz(dumpxyz)
+      
     {
 
     }
@@ -106,8 +108,13 @@ public:
         }
         if (m_curPos == 28) {
             std::stringstream ss;
+            if (m_payload.gestureInfo.gestureType == 1)
+                ss << " Flick";
+            if (m_payload.gestureInfo.gestureType == 2)
+                ss << " Circular";
+            if (m_payload.gestureInfo.edgeFlick == 2)
+                ss << " EdgeFlick";
             if (m_payload.gestureInfo.gestureCode) {
-                ss << " GestCode=" << static_cast<int>(m_payload.gestureInfo.gestureCode);
                 switch(m_payload.gestureInfo.gestureCode)
                 {
                     case GESTURE_GARBAGE: ss << " garbage"; break;
@@ -117,14 +124,11 @@ public:
                     case GESTURE_NORTH_SOUTH: ss << " north-south"; break;
                     case GESTURE_CLOCK_WISE: ss << " clock wise"; break;
                     case GESTURE_COUNTER_CLOCK_WISE: ss << " counter clock wise"; break;
+                    default:
+                         ss << " GestCode=" << static_cast<int>(m_payload.gestureInfo.gestureCode);
+                         break;
                 }
             }
-            if (m_payload.gestureInfo.gestureType == 1)
-                ss << " Flick";
-            if (m_payload.gestureInfo.gestureType == 2)
-                ss << " Circular";
-            if (m_payload.gestureInfo.edgeFlick == 2)
-                ss << " EdgeFlick";
             if (m_payload.touchInfo.touchSouth)
                 ss << " TchS";
             if (m_payload.touchInfo.touchWest)
@@ -161,7 +165,7 @@ public:
             }
             if (m_showxyz)
             {
-                ss << " xyz=[" << m_payload.xyzArray[1] * 256 + m_payload.xyzArray[0];
+                ss << " [" << m_payload.xyzArray[1] * 256 + m_payload.xyzArray[0];
                 ss << "," << m_payload.xyzArray[3] * 256 + m_payload.xyzArray[2];
                 ss << "," << m_payload.xyzArray[5] * 256 + m_payload.xyzArray[4] << "]";
             }
@@ -171,6 +175,12 @@ public:
 
                 if (ss.str().length ())
                 {
+                    if (m_tagxyz)
+                    {
+                         ss << " [" << m_payload.xyzArray[1] * 256 + m_payload.xyzArray[0];
+                         ss << "," << m_payload.xyzArray[3] * 256 + m_payload.xyzArray[2];
+                         ss << "," << m_payload.xyzArray[5] * 256 + m_payload.xyzArray[4] << "]";
+                    }
                     std::cout << ss.str () << std::endl;
                 }
             }
@@ -184,6 +194,7 @@ protected:
 private:
     int m_curPos;
     std::string m_oldstring;
+    bool m_tagxyz;
     bool m_showxyz;
 };
 
@@ -191,13 +202,21 @@ int main(int argc, char *argv[])
 {
     if (argc < 2)
     {
-        printf("Usage %s device [--xyz]\n", argv[0]);
+        fprintf(stderr, "Usage %s device [--allxyz -tapxyz --mapped]\n", argv[0]);
+        fprintf(stderr, "--allxyz show continues coordinates\n");
+        fprintf(stderr, "--tapxyz show coordinate with event\n");
         exit(2);
     }
-    bool dumpxyz=false;
+    bool dumpxyz = false;
+    bool tapxyz = false;
     if (argc == 3)
     {
-        if (std::string(argv[2]) == std::string("--xyz"))
+        if (std::string(argv[2]) == std::string("--tapxyz"))
+        {
+            tapxyz = true;
+        }
+        else
+        if (std::string(argv[2]) == std::string("--allxyz"))
         {
             dumpxyz = true;
         }
@@ -208,7 +227,7 @@ int main(int argc, char *argv[])
         }
     }
     
-    MGC mgc(dumpxyz);
+    MGC mgc(tapxyz, dumpxyz);
 
 #ifdef WIRING_PI
     int handler = serialOpen (argv[1], 115200);
