@@ -20,6 +20,19 @@
 #define GESTURE_CLOCK_WISE         0x06
 #define GESTURE_COUNTER_CLOCK_WISE 0x07
 
+static int keys[] = {
+	KEY_PLAYPAUSE,
+	KEY_NEXTSONG,
+	KEY_PREVIOUSSONG,
+	KEY_STOP,
+	KEY_FORWARD,
+	KEY_REWIND,
+	KEY_VOLUMEUP,
+	KEY_VOLUMEDOWN,
+	KEY_MUTE,
+};
+
+
 #pragma pack(1)
 struct MGCData
 {
@@ -68,43 +81,48 @@ struct MGCData
 class MGC
 {
 	public:
-		MGC(bool tagxyz = false, bool dumpxyz = false)
-			: m_curPos (0)
+		MGC(bool tagxyz = false, bool dumpxyz = false, bool mapped = false, int ufd = -1)
+			: m_curPos (-1)
 			  , m_oldstring("")
 			  , m_tagxyz(tagxyz)
 			  , m_showxyz(dumpxyz)
+			  , m_mapped(mapped)
+			  , m_ufd(ufd)
 
 	{
 
 	}
 
-		void addVal(unsigned char value)
-		{
-			if (m_curPos == -1) {
-				if (value == 0xfe) {
-					m_curPos = 0;
-				}
+	void addVal(unsigned char value)
+	{
+		if (m_curPos == -1) {
+			if (value == 0xfe) {
+				m_curPos = 0;
+			}
+			return;
+		}
+		else if (m_curPos == 0) {
+			if (value == 0xff) {
+				m_curPos = 1;
+			}
+			else {
+				m_curPos = -1;
 				return;
 			}
-			else if (m_curPos == 0) {
-				if (value == 0xff) {
-					m_curPos = 1;
-				}
-				else {
-					m_curPos = -1;
-					return;
-				}
-			}
-			if (m_curPos == 4)
-			{
-			}
+		}
+		if (m_curPos == 4)
+		{
+		}
 
-			if (m_curPos < 28) {
-				uint8_t * p = (uint8_t *) &m_payload;
-				p[m_curPos] = static_cast<uint8_t>(value);
-				++m_curPos;
-			}
-			if (m_curPos == 28) {
+		if (m_curPos < 28) {
+			uint8_t * p = (uint8_t *) &m_payload;
+			p[m_curPos] = static_cast<uint8_t>(value);
+			++m_curPos;
+		}
+		if (m_curPos == 28) {
+			if (m_mapped) {
+				mapVal();
+			} else {
 				std::stringstream ss;
 				if (m_payload.gestureInfo.gestureType == 1)
 					ss << " Flick";
@@ -182,22 +200,48 @@ class MGC
 						std::cout << ss.str () << std::endl;
 					}
 				}
-				m_curPos = -1;
 			}
+			m_curPos = -1;
 		}
+	}
 
 	protected:
 		MGCData m_payload;
 
 	private:
-		int m_curPos;
+		int m_curPos, m_ufd;
 		std::string m_oldstring;
 		bool m_tagxyz;
 		bool m_showxyz;
+		bool m_mapped;
+		bool ev_state[8];
+
+		void emitKeys(int id, int event, int keycode)
+		{
+			if (ev_state[id] ^ event) {
+				ev_state[id] = event;
+				if (event) {
+					printf("keycode:0x%x\n", keycode);
+					lm_gen_keystroke(m_ufd, keycode);
+				}
+			}
+		}
+
+		void mapVal()
+		{
+			emitKeys(0, m_payload.touchInfo.touchSouth, KEY_VOLUMEDOWN);
+			emitKeys(1, m_payload.touchInfo.touchNorth, KEY_VOLUMEUP);
+			emitKeys(2, m_payload.touchInfo.touchEast, KEY_NEXTSONG);
+			emitKeys(3, m_payload.touchInfo.touchWest, KEY_PREVIOUSSONG);
+			emitKeys(4, m_payload.gestureInfo.gestureCode == GESTURE_WEST_EAST, KEY_FORWARD);
+			emitKeys(5, m_payload.gestureInfo.gestureCode == GESTURE_EAST_WEST, KEY_REWIND);
+		}
+
 };
 
 int main(int argc, char *argv[])
 {
+	int uinput_fd;
 	if (argc < 2)
 	{
 		fprintf(stderr, "Usage %s device [--allxyz -tapxyz --mapped]\n", argv[0]);
@@ -207,25 +251,27 @@ int main(int argc, char *argv[])
 	}
 	bool dumpxyz = false;
 	bool tapxyz = false;
+	bool mapped = false;
 	if (argc == 3)
 	{
-		if (std::string(argv[2]) == std::string("--tapxyz"))
-		{
+		if (std::string(argv[2]) == std::string("--tapxyz")) {
 			tapxyz = true;
+		} else if (std::string(argv[2]) == std::string("--allxyz")) {
+			dumpxyz = true;
+		} else if (std::string(argv[2]) == std::string("--mapped")) {
+			mapped = true;
+		} else
+		{
+			printf("unknown option %s", argv[2]);
+			exit(2);
 		}
-		else
-			if (std::string(argv[2]) == std::string("--allxyz"))
-			{
-				dumpxyz = true;
-			}
-			else
-			{
-				printf("unknown option %s", argv[2]);
-				exit(2);
-			}
 	}
 
-	MGC mgc(tapxyz, dumpxyz);
+	if (mapped) {
+		uinput_fd = lm_setup_dev(keys, sizeof(keys)/sizeof(keys[0]));
+	}
+
+	MGC mgc(tapxyz, dumpxyz, mapped, uinput_fd);
 
 	unsigned char buffer[32];
 	int handler, i, rc = 0;
@@ -255,6 +301,8 @@ int main(int argc, char *argv[])
 
 cleanup:
 	close(handler);
+	if (mapped)
+		lm_cleanup_dev(uinput_fd);
 exit:
 	return rc;
 
