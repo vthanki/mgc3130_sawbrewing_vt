@@ -6,12 +6,10 @@
 #include <sstream>
 #include <iostream>
 #include <fcntl.h>
+#include <errno.h>
 
-#define WIRING_PI
-#ifdef WIRING_PI
-#include <wiringSerial.h>
-#endif
-
+#include "serial.h"
+#include "uinput.h"
 
 #define NO_GESTURE                 0x00
 #define GESTURE_GARBAGE            0x01
@@ -229,29 +227,35 @@ int main(int argc, char *argv[])
 
 	MGC mgc(tapxyz, dumpxyz);
 
-#ifdef WIRING_PI
-	int handler = serialOpen (argv[1], 115200);
-	while(1)
-	{
-		int val = serialGetchar (handler);
-		if (val != -1)
-		{
-			mgc.addVal(val);
-		}
+	unsigned char buffer[32];
+	int handler, i, rc = 0;
+
+	handler = open (argv[1], O_RDONLY | O_NOCTTY);
+
+	if (handler < 0) {
+		perror("open");
+		goto exit;
 	}
-#else
-	int handler = open (argv[1], O_RDONLY | O_NOCTTY);
-	while(1)
-	{
-		unsigned char buffer[32];
-		int n = read(handler, buffer, sizeof(buffer));
-		if (n>0)
-		{
-			for (int i=0; i < n; ++i)
+
+	/* Set the baudrate and mark the TTY port blocking for read */
+	rc = lm_set_tty_attr(handler, B115200, 0);
+	if (rc)
+		goto cleanup;
+
+	while(1) {
+		rc = read(handler, buffer, sizeof(buffer));
+		if (rc) {
+			for (i = 0;  i < rc; i++)
 				mgc.addVal(buffer[i]);
+		} else {
+			perror("read");
+			break;
 		}
 	}
 
-#endif
+cleanup:
+	close(handler);
+exit:
+	return rc;
 
 }
