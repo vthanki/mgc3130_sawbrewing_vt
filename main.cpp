@@ -1,16 +1,21 @@
 #include <unistd.h>
-
 #include <stdio.h>
 #include <stdint.h>
-#include <string>
+#include <string.h>
 #include <sstream>
 #include <iostream>
 #include <fcntl.h>
 #include <errno.h>
 #include <signal.h>
+#include <termios.h>
+#include <linux/input.h>
+#include <linux/uinput.h>
 
-#include "serial.h"
-#include "uinput.h"
+#define die(str, args...) do { \
+	perror(str); \
+	exit(EXIT_FAILURE); \
+} while(0)
+
 
 #define NO_GESTURE                 0x00
 #define GESTURE_GARBAGE            0x01
@@ -106,12 +111,12 @@ class MGC
 			}
 
 			/* Set the baudrate and mark the TTY port blocking for read */
-			rc = lm_set_tty_attr(m_serial_fd, B115200, 0);
+			rc = mgc_set_tty_attr(m_serial_fd, B115200, 0);
 			if (rc)
 				exit(-1);
 
 			if (mapped) {
-				m_uinput_fd = lm_setup_dev(keys, ARRAY_SIZE(keys));
+				m_uinput_fd = mgc_setup_dev(keys, ARRAY_SIZE(keys));
 				if (m_uinput_fd < 0)
 					exit (-1);
 			}
@@ -123,7 +128,7 @@ class MGC
 		{
 			close(m_serial_fd);
 			if (m_mapped)
-				lm_cleanup_dev(m_uinput_fd);
+				mgc_cleanup_dev(m_uinput_fd);
 
 			std::cout << "Device cleanup done.\n";
 		}
@@ -265,13 +270,135 @@ class MGC
 		bool m_mapped;
 		bool ev_state[8];
 
+		int mgc_register_keys(int fd, int *key_arr, int size)
+		{
+			int i;
+
+			if(ioctl(fd, UI_SET_EVBIT, EV_KEY) < 0)
+				die("error: ioctl");
+
+			for (i = 0; i < size; i++)
+				if(ioctl(fd, UI_SET_KEYBIT, key_arr[i]) < 0)
+					die("error: ioctl");
+
+			return 0;
+		}
+
+		int mgc_gen_keystroke(int fd, int key)
+		{
+			struct input_event     ev;
+
+			memset(&ev, 0, sizeof(struct input_event));
+			ev.type = EV_KEY;
+			ev.code = key;
+			ev.value = 1;
+			if(write(fd, &ev, sizeof(struct input_event)) < 0)
+				die("error: write");
+
+			memset(&ev, 0, sizeof(struct input_event));
+			ev.type = EV_KEY;
+			ev.code = key;
+			ev.value = 0;
+			if(write(fd, &ev, sizeof(struct input_event)) < 0)
+				die("error: write");
+
+			memset(&ev, 0, sizeof(struct input_event));
+			ev.type = EV_SYN;
+			ev.code = 0;
+			ev.value = 0;
+			if(write(fd, &ev, sizeof(struct input_event)) < 0)
+				die("error: write");
+
+			return 0;
+		}
+
+		int mgc_setup_dev(int *keys, int num_keys)
+		{
+			int fd;
+			struct uinput_user_dev uidev;
+
+			fd = open("/dev/uinput", O_WRONLY | O_NONBLOCK);
+			if(fd < 0)
+				die("error: open");
+
+			mgc_register_keys(fd, keys, num_keys);
+
+			memset(&uidev, 0, sizeof(uidev));
+			snprintf(uidev.name, UINPUT_MAX_NAME_SIZE, "libmisc-uinput");
+			uidev.id.bustype = BUS_VIRTUAL;
+
+			if(write(fd, &uidev, sizeof(uidev)) < 0)
+				die("error: write");
+
+			if(ioctl(fd, UI_DEV_CREATE) < 0)
+				die("error: ioctl");
+
+			sleep(2);
+
+			return fd;
+		}
+
+		void mgc_cleanup_dev(int fd)
+		{
+			if(ioctl(fd, UI_DEV_DESTROY) < 0)
+				die("error: ioctl");
+
+			close(fd);
+
+		}
+		int mgc_set_tty_attr(int fd, int speed, int parity)
+		{
+			struct termios tty;
+
+			if (!isatty(fd)) {
+				printf("Not a TTY file descriptor\n");
+				return -EBADF;
+			}
+
+			memset (&tty, 0, sizeof tty);
+
+			if (tcgetattr (fd, &tty) != 0) {
+				perror("tcgetattr");
+				return -1;
+			}
+
+			if (cfsetospeed (&tty, speed)) {
+				perror("cfsetospeed");
+				return -1;
+			}
+			if (cfsetispeed (&tty, speed)) {
+				perror("cfsetispeed");
+				return -1;
+			}
+
+			tty.c_cflag = (tty.c_cflag & ~CSIZE) | CS8;
+			tty.c_iflag &= ~IGNBRK;
+			tty.c_lflag = 0;
+			tty.c_oflag = 0;
+			/* Make read blocking on at least 1 char */
+			tty.c_cc[VMIN]  = 1;
+			tty.c_cc[VTIME] = 0;
+			tty.c_iflag &= ~(IXON | IXOFF | IXANY);
+			tty.c_cflag |= (CLOCAL | CREAD);
+			tty.c_cflag &= ~(PARENB | PARODD);
+			tty.c_cflag |= parity;
+			tty.c_cflag &= ~CSTOPB;
+			tty.c_cflag &= ~CRTSCTS;
+
+			if (tcsetattr (fd, TCSANOW, &tty)) {
+				perror("tcsetattr");
+				return -1;
+			}
+
+			return 0;
+		}
 		void emitKeys(int id, int event, int keycode)
 		{
 			if (ev_state[id] ^ event) {
 				ev_state[id] = event;
 				if (event) {
 					std::cout << "keycode:" << keycode << std::endl;
-					lm_gen_keystroke(m_uinput_fd, keycode);
+					mgc_gen_keystroke(m_uinput_fd, keycode);
 				}
 			}
 		}
