@@ -80,7 +80,7 @@ class MGC
 
 	}
 
-		void addVal(int value)
+		void addVal(unsigned char value)
 		{
 			if (m_curPos == -1) {
 				if (value == 0xfe) {
@@ -243,7 +243,7 @@ int main(int argc, char *argv[])
 	int handler = open (argv[1], O_RDONLY | O_NOCTTY);
 	while(1)
 	{
-		char buffer[32];
+		unsigned char buffer[32];
 		int n = read(handler, buffer, sizeof(buffer));
 		if (n>0)
 		{
