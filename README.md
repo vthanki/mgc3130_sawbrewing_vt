@@ -40,8 +40,13 @@ GestCode=31 TapE DTapW DTapE DTapC
 By providing --mapped command line option also emits multimedia key strokes for following events.
 
 Touch-North --> Volume UP Key
+
 Touch-South --> Volume Down Key
+
 Touch-East  --> Next Song Key
+
 Touch-West  --> Previous Song Key
+
 Flick West-to-East --> Forward Key
+
 Flick East-to-West --> Rewind Key
